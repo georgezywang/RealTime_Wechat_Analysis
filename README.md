@@ -19,5 +19,8 @@ Save it to the a txt file and run `utils/KeyParser.py` to obtain a key. That key
 ```
 https://www.macworld.co.uk/how-to/how-turn-off-mac-os-x-system-integrity-protection-rootless-3638975/
 https://blog.csdn.net/u013051748/article/details/108394306
+https://blog.csdn.net/swinfans/article/details/88712593
 https://www.jianshu.com/p/90224ab9cdf2
+https://www.lianxh.cn/news/d34f09cb214e0.html
+https://www.jianshu.com/p/0f41c120160d
 ```

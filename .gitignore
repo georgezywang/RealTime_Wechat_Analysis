@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 /resources
+/DataStore
+chatStats.png
 
 # C extensions
 *.so
