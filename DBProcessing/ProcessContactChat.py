@@ -47,8 +47,8 @@ class ChatProcess():
                 self.lastReplyEntity = 1
     
     def ParsePastChatDistribution(self):
-        self.myMsgTimeMonthly, self.myMsgCountMonthly, self.myMsgTimeDaily, self.myMsgCountDaily = DataPlotter.GetChatHistoryDistribution(parsedDataConn, self.m_nsAliasName, 0)
-        self.contactMsgTimeMonthly, self.contactMsgCountMonthly, self.contactMsgTimeDaily, self.contactMsgCountDaily = DataPlotter.GetChatHistoryDistribution(parsedDataConn, self.m_nsAliasName, 1)
+        self.myMsgTimeMonthly, self.myMsgCountMonthly, self.myMsgTimeDaily, self.myMsgCountDaily = DataPlotter.GetChatHistoryDistribution(PARSED_DATA_CONNECTION, self.m_nsAliasName, 0)
+        self.contactMsgTimeMonthly, self.contactMsgCountMonthly, self.contactMsgTimeDaily, self.contactMsgCountDaily = DataPlotter.GetChatHistoryDistribution(PARSED_DATA_CONNECTION, self.m_nsAliasName, 1)
     
     def AnimateAnalysis(self):
         DataPlotter.PlotStats(self.myMsgTimeMonthly, self.myMsgCountMonthly, self.myMsgTimeDaily, self.myMsgCountDaily, self.contactMsgCountMonthly, self.contactMsgCountDaily, self.contactReplyInterval, self.myReplyInterval, self.m_nsAliasName, self.startTime, self.myLastReply, self.contactLastReply)
@@ -103,8 +103,7 @@ def UpdateContactMap():
                         WHERE m_uiCertificationFlag = 0;""")
     contactData = DBCursor.fetchall()
 
-    parsedDataConn = ConnectNonEncryptedDB(PARSED_DB_PATH)
-    parsedDataCursor = parsedDataConn.cursor()
+    parsedDataCursor = PARSED_DATA_CONNECTION.cursor()
     parsedDataCursor.execute("""CREATE TABLE IF NOT EXISTS ParsedContact(
                                 m_nsUsrName TEXT PRIMARY KEY, 
                                 m_nsRemark TEXT,
@@ -150,7 +149,7 @@ def UpdateContactMap():
                                     db_Stored)
                                     VALUES(?,?,?,?,?);""", (m_nsUsrName, m_nsRemark,
                                     m_nsAliasName, chat_md5ID, db_Stored))
-    parsedDataConn.commit()
+    PARSED_DATA_CONNECTION.commit()
     parsedDataCursor.close()
 
 def FetchContactData(m_nsAliasName, parsedDataCursor):
@@ -163,9 +162,9 @@ def FetchContactData(m_nsAliasName, parsedDataCursor):
     retreivedInfo = parsedDataCursor.fetchall()
     return retreivedInfo
 
-def GetUpdateContactInfo(m_nsAliasName, parsedDataConn):
+def GetUpdateContactInfo(m_nsAliasName):
     #Get user info from ParsedContact table
-    parsedDataCursor = parsedDataConn.cursor()
+    parsedDataCursor = PARSED_DATA_CONNECTION.cursor()
     userStorageInfo= FetchContactData(m_nsAliasName, parsedDataCursor)
 
     if len(userStorageInfo) < 1:
@@ -180,9 +179,9 @@ def GetUpdateContactInfo(m_nsAliasName, parsedDataConn):
     userDB = userStorageInfo[2]
     return userAlias, userChatEncryption, userDB
 
-def UpdateContactHistory(parsedDataConn, userChatDBCursor, userChatEncryption, userAlias, log = False):
+def UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = False):
     #update chat history for specific contact
-    parsedDataCursor = parsedDataConn.cursor()
+    parsedDataCursor = PARSED_DATA_CONNECTION.cursor()
     #mesDes (msg destination) 0 is contact, 1 is me
     #msgCreateTime is second since 1970
     parsedDataCursor.execute("""CREATE TABLE IF NOT EXISTS {}(
@@ -225,8 +224,29 @@ def UpdateContactHistory(parsedDataConn, userChatDBCursor, userChatEncryption, u
         if log:
             logMsgProcessor(chat, userAlias)
         
-    parsedDataConn.commit()
+    PARSED_DATA_CONNECTION.commit()
     return updateChatHistory
+
+def GetUserDB(m_nsAliasName):
+    #get the encrypted db that stores user @m_nsAliasName
+    userAlias, userChatEncryption, userDB = GetUpdateContactInfo(m_nsAliasName) 
+    DBKey = ReadKey(KEY_PATH)
+    DBName = "msg_{}.db".format(userDB)
+    userChatDB = os.path.join(WXDB_DIR, DBName)
+    userChatDBCursor = ConnectWXDB.ConnectWXDB(userChatDB, DBKey)
+    return userChatDBCursor, userChatEncryption, userAlias
+
+def UpdateAllContactChatHistory(log = 1):
+    parsedDataCursor = PARSED_DATA_CONNECTION.cursor()
+    parsedDataCursor.execute("SELECT m_nsAliasName FROM ParsedContact")
+    allRecordedContact = parsedDataCursor.fetchall()
+    assert log in range(4), Fore.RED + "ERROR: Wrong log level, expect 0 to 3" + Style.RESET_ALL
+
+    for contact in allRecordedContact:
+        userChatDBCursor, userChatEncryption, userAlias = GetUserDB(contact[0])
+        updateChatHistory = UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = False if log < 2 else True)
+        if (len(updateChatHistory) and (log == 2)) or log == 3:
+            print(Fore.CYAN + "User {}, alias {}, md5 encryption {} fetched".format(contact[0], userAlias, userChatEncryption) + Style.RESET_ALL)
 
 def logMsgProcessor(logMsg, userAlias):
     #process log message
@@ -248,42 +268,22 @@ def logMsgProcessor(logMsg, userAlias):
     }
     print("{} 于 {} : {}".format(sender, timeStampString, msgDisplay.get(messageType, msgContent)))
 
-def GetUserDB(m_nsAliasName, parsedDataConn):
-    #get the encrypted db that stores user @m_nsAliasName
-    userAlias, userChatEncryption, userDB = GetUpdateContactInfo(m_nsAliasName, parsedDataConn) 
-    DBKey = ReadKey(KEY_PATH)
-    DBName = "msg_{}.db".format(userDB)
-    userChatDB = os.path.join(WXDB_DIR, DBName)
-    userChatDBCursor = ConnectWXDB.ConnectWXDB(userChatDB, DBKey)
-    return userChatDBCursor, userChatEncryption, userAlias
-
-def UpdateAllContactChatHistory(log = 1):
-    parsedDataCursor = parsedDataConn.cursor()
-    parsedDataCursor.execute("SELECT m_nsAliasName FROM ParsedContact")
-    allRecordedContact = parsedDataCursor.fetchall()
-    assert log in range(4), Fore.RED + "ERROR: Wrong log level, expect 0 to 3" + Style.RESET_ALL
-
-    for contact in allRecordedContact:
-        userChatDBCursor, userChatEncryption, userAlias = GetUserDB(contact[0], parsedDataConn)
-        updateChatHistory = UpdateContactHistory(parsedDataConn, userChatDBCursor, userChatEncryption, userAlias, log = False if log < 2 else True)
-        if (len(updateChatHistory) and (log == 2)) or log == 3:
-            print(Fore.CYAN + "User {}, alias {}, md5 encryption {} fetched".format(contact[0], userAlias, userChatEncryption) + Style.RESET_ALL)
-
 def RealTimeLogging(m_nsAliasName):
     #Real Time Logging
     if LOG_LEVEL > 0:
         print(Fore.GREEN)
         print("Real Time Logging Started")
         print(Style.RESET_ALL)
-    userChatDBCursor, userChatEncryption, userAlias = GetUserDB(m_nsAliasName, parsedDataConn)
+    userChatDBCursor, userChatEncryption, userAlias = GetUserDB(m_nsAliasName)
     chatProcess = ChatProcess(m_nsAliasName)
     noUpdateTime = datetime.datetime.timestamp(datetime.datetime.now())
+    chatProcess.AnimateAnalysis()
 
     while True:
         try:
             if datetime.datetime.now().day != chatProcess.startTime.day:
                 chatProcess.ParsePastChatDistribution()
-            updateChatHistory = UpdateContactHistory(parsedDataConn, userChatDBCursor, userChatEncryption, userAlias, log = LOG_LEVEL)
+            updateChatHistory = UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = LOG_LEVEL)
             nowTimeStamp = datetime.datetime.timestamp(datetime.datetime.now())
 
             if (len(updateChatHistory) < 1):
@@ -320,27 +320,26 @@ def RealTimeLogging(m_nsAliasName):
                 
 if __name__ == "__main__":
     CONTACT_DB_PATH = "/Users/wzy/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/b309b66a15900f3091dd5d8870f9ecfa/Contact/wccontact_new2.db"
-    KEY_PATH = "resources/KeyConcatenatedPro.txt"
+    KEY_PATH = "resources/Key.txt"
     WXDB_DIR = "/Users/wzy/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/b309b66a15900f3091dd5d8870f9ecfa/Message/"
     PARSED_DB_PATH = "DataStore/Contact.db"
     LOG_LEVEL_MAP = {0 : "NO_CHAT",
-                 1 : "REAL_TIME_ONLY",
-                 2 : "UPDATE_ONLY",
-                 3 : "ALL"}
+                     1 : "REAL_TIME_ONLY",
+                     2 : "UPDATE_ONLY",
+                     3 : "ALL"}
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--user_wxid", help = "对方的微信号", required=False)
     parser.add_argument("-u", "--update_all", help = "更新所有备份数据库", action='store_true')
     parser.add_argument("-l", "--logLevel", help = "0 : NO_CHAT, 1 : REAL_TIME_ONLY, 2 : UPDATE_ONLY, 3 : ALL", type = int, default = 1)
     args = parser.parse_args()
-    parsedDataConn = ConnectNonEncryptedDB(PARSED_DB_PATH)
+    PARSED_DATA_CONNECTION = ConnectNonEncryptedDB(PARSED_DB_PATH)
 
     LOG_LEVEL = args.logLevel
     print(Fore.BLUE)
     print("Setting LOG_LEVEL To: {}".format(LOG_LEVEL_MAP[LOG_LEVEL]) + Style.RESET_ALL)
     print(Fore.BLUE)
     print("Fetching All Contact History" + Style.RESET_ALL)
-    UpdateAllContactChatHistory(LOG_LEVEL)
 
     if(args.update_all):
         print(Fore.BLUE)
@@ -348,5 +347,6 @@ if __name__ == "__main__":
         print(Style.RESET_ALL)
         UpdateContactMap()
 
+    UpdateAllContactChatHistory(LOG_LEVEL)
     if(args.user_wxid is not None):
         RealTimeLogging(args.user_wxid)

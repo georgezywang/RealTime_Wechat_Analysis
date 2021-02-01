@@ -4,11 +4,6 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-from ProcessContactChat import ConnectNonEncryptedDB
-
-m_nsAliasName = "zbw8388"
-PARSED_DB_PATH = "DataStore/Contact.db"
-parsedDataConn = ConnectNonEncryptedDB(PARSED_DB_PATH)
 
 def GetMonths(start_month, start_year, end_month, end_year):
     start = datetime(start_year, start_month, 1)

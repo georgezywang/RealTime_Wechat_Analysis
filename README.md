@@ -1,7 +1,14 @@
 # Wechat_Analysis
 
 ## Obtaining the Key to *.db
-open WeChat, without logging in. Type `lldb -p $(pgrep WeChat)` in terminal. You should see some output, with the last two lines similar to
+First disable LLDB by entering the OS recovery mode and issuing the following command
+```
+csrutil disable 
+```
+to disable System Integrity Protection (SIP). Remember to enable it after obtaining the key by entering the recovery OS and issuing 
+`csrutil enable` in the terminal
+
+Open WeChat, without logging in. Type `lldb -p $(pgrep WeChat)` in terminal. You should see some output, with the last two lines similar to
 ```
 Executable module set to "/Applications/WeChat.app/Contents/MacOS/WeChat".
 Architecture set to: x86_64h-apple-macosx-.
