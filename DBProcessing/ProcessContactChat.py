@@ -7,14 +7,21 @@ import time
 from pysqlcipher3 import dbapi2 as sqlite
 import hashlib
 import argparse
+from statistics import mean
 import matplotlib.pyplot as plt
 from colorama import Fore, Style
+import xml.etree.ElementTree as ET
 
 class ChatProcess():
     def __init__(self, m_nsAliasName):
+        nowTimeStamp = datetime.datetime.timestamp(datetime.datetime.now())
         self.m_nsAliasName = m_nsAliasName
-        self.myLastReply = datetime.datetime.timestamp(datetime.datetime.now())
-        self.contactLastReply = datetime.datetime.timestamp(datetime.datetime.now())
+        self.myLastReply = nowTimeStamp
+        self.contactLastReply = nowTimeStamp
+        self.noUpdateTime = nowTimeStamp
+        self.myFirstReply = -1
+        self.contactFirstReply = -1
+        
         self.contactReplyInterval = []
         self.myReplyInterval = []
         self.startTime = datetime.datetime.now()
@@ -28,8 +35,10 @@ class ChatProcess():
             mesDes = logMsg[6]
 
             if mesDes == 0:
-                if self.lastReplyEntity == -1:
-                    self.startTime = datetime.datetime.now()
+                if self.myFirstReply == -1:
+                    self.myFirstReply = float(msgCreateTime)
+                    if self.lastReplyEntity == -1:
+                        self.startTime = datetime.datetime.now()
                 else:
                     self.myReplyInterval.append(msgCreateTime - max(self.myLastReply, self.contactLastReply))
                 self.myLastReply = float(msgCreateTime)    
@@ -37,8 +46,10 @@ class ChatProcess():
                 self.myMsgCountDaily[-1] += 1 
                 self.lastReplyEntity = 0
             else:
-                if self.lastReplyEntity == -1:
-                    self.startTime = datetime.datetime.now()
+                if self.contactFirstReply == -1:
+                    self.contactFirstReply = float(msgCreateTime)
+                    if self.lastReplyEntity == -1:
+                        self.startTime = datetime.datetime.now()
                 else:
                     self.contactReplyInterval.append(msgCreateTime -max(self.myLastReply, self.contactLastReply))
                 self.contactLastReply = msgCreateTime
@@ -52,6 +63,29 @@ class ChatProcess():
     
     def AnimateAnalysis(self):
         DataPlotter.PlotStats(self.myMsgTimeMonthly, self.myMsgCountMonthly, self.myMsgTimeDaily, self.myMsgCountDaily, self.contactMsgCountMonthly, self.contactMsgCountDaily, self.contactReplyInterval, self.myReplyInterval, self.m_nsAliasName, self.startTime, self.myLastReply, self.contactLastReply)
+    
+    def ChatProcessLogger(self, nowTimeStamp, updateChatHistory):
+        timeSinceMyLastReply = nowTimeStamp - self.myLastReply
+        timeSinceContactLastRepy = nowTimeStamp - self.contactLastReply
+
+        if (nowTimeStamp - self.noUpdateTime > 30):
+            self.noUpdateTime = nowTimeStamp
+            print(Fore.BLUE)
+            lastReplyEntity = self.m_nsAliasName if self.lastReplyEntity == 1 else"me"
+            print("Last Reply Entity Is: {}".format(lastReplyEntity))
+            print("Time Since Contact Last Reply: {}".format(timeSinceContactLastRepy))
+            print("Time Since My Last Reply: {}".format(timeSinceMyLastReply))
+            print(Style.RESET_ALL)
+
+            if len(self.contactReplyInterval) >= 3 and timeSinceContactLastRepy > 3 * mean(self.contactReplyInterval) and self.lastReplyEntity == 0:
+                print(Fore.RED)
+                print("WARNING: Contact is taking unusually long time to reply, consider abort chat" + Style.RESET_ALL)
+            elif len(self.myReplyInterval) >= 3 and timeSinceMyLastReply > 3 * mean(self.myReplyInterval) and self.lastReplyEntity == 1:
+                print(Fore.RED)
+                print("WARNING: You should consider replying to the message" + Style.RESET_ALL)
+
+        if(len(updateChatHistory) < 1 ):
+            return True
     
     def PrintChatSummary(self):
         print(Fore.RED)
@@ -94,6 +128,7 @@ def transmd5(stringCode):
 
 #data retrieval
 def UpdateContactMap():
+    #TODO: Reimplement updating procedure to save connection time
     #Update ParsedContact Table in ParsedDB
     DBKey = ReadKey(KEY_PATH)
     DBCursor = ConnectWXDB.ConnectWXDB(CONTACT_DB_PATH, DBKey)
@@ -262,7 +297,7 @@ def logMsgProcessor(logMsg, userAlias):
         3 : "发送了一张图片",
         34 : "发送的语音内容为: " + msgContent if msgContent is not None else "发送了一条语音",
         47 : "发送了一个gif表情包",
-        49 : msgContent.replace('\n', ' ') if msgContent is not None else msgContent,
+        49 : (ET.fromstring(msgContent).findall('./appmsg/title'))[0].text if msgContent is not None and messageType == 49 else msgContent,
         10000: '撤回了一条消息，手速好快！'
         #TODO: parse message content for case 49
     }
@@ -276,44 +311,26 @@ def RealTimeLogging(m_nsAliasName):
         print(Style.RESET_ALL)
     userChatDBCursor, userChatEncryption, userAlias = GetUserDB(m_nsAliasName)
     chatProcess = ChatProcess(m_nsAliasName)
-    noUpdateTime = datetime.datetime.timestamp(datetime.datetime.now())
     chatProcess.AnimateAnalysis()
+    chatProcess.noUpdateTime = datetime.datetime.timestamp(datetime.datetime.now())
 
     while True:
         try:
             if datetime.datetime.now().day != chatProcess.startTime.day:
                 chatProcess.ParsePastChatDistribution()
+
             updateChatHistory = UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = LOG_LEVEL)
             nowTimeStamp = datetime.datetime.timestamp(datetime.datetime.now())
 
-            if (len(updateChatHistory) < 1):
-                timeSinceMyLastReply = nowTimeStamp - chatProcess.myLastReply
-                timeSinceContactLastRepy = nowTimeStamp - chatProcess.contactLastReply
-
-                if (nowTimeStamp - noUpdateTime > 30):
-                    noUpdateTime = nowTimeStamp
-                    print(Fore.BLUE)
-                    lastReplyEntity = chatProcess.m_nsAliasName if chatProcess.lastReplyEntity == 1 else "me"
-                    print("Last Reply Entity Is: {}".format(lastReplyEntity))
-                    print("Time Since Contact Last Reply: {}".format(timeSinceContactLastRepy))
-                    print("Time Since My Last Reply: {}".format(timeSinceMyLastReply))
-
-                    if len(chatProcess.contactReplyInterval) > 5 and timeSinceContactLastRepy > 2 * max(chatProcess.contactReplyInterval) and chatProcess.lastReplyEntity == 0:
-                        print(Fore.RED)
-                        print("WARNING: Contact is taking usually long time to reply, consider abort chat")
-                    elif len(chatProcess.myReplyInterval) > 5 and timeSinceMyLastReply > 2 * max(chatProcess.myReplyInterval) and chatProcess.lastReplyEntity == 1:
-                        print(Fore.RED)
-                        print("WARNING: You should consider replying to the message")
-
-                    print(Style.RESET_ALL)
+            if (chatProcess.ChatProcessLogger(nowTimeStamp, updateChatHistory)):
                 time.sleep(0.5)
                 continue
 
-            noUpdateTime = nowTimeStamp
+            chatProcess.noUpdateTime = nowTimeStamp
             chatProcess.ProcessUpdateHistory(updateChatHistory)
             chatProcess.AnimateAnalysis()
             time.sleep(1)
-            plt.close()
+            plt.close()          
         except KeyboardInterrupt:
             chatProcess.PrintChatSummary()
             sys.exit()
@@ -323,6 +340,7 @@ if __name__ == "__main__":
     KEY_PATH = "resources/Key.txt"
     WXDB_DIR = "/Users/wzy/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/b309b66a15900f3091dd5d8870f9ecfa/Message/"
     PARSED_DB_PATH = "DataStore/Contact.db"
+
     LOG_LEVEL_MAP = {0 : "NO_CHAT",
                      1 : "REAL_TIME_ONLY",
                      2 : "UPDATE_ONLY",
@@ -337,14 +355,11 @@ if __name__ == "__main__":
 
     LOG_LEVEL = args.logLevel
     print(Fore.BLUE)
-    print("Setting LOG_LEVEL To: {}".format(LOG_LEVEL_MAP[LOG_LEVEL]) + Style.RESET_ALL)
-    print(Fore.BLUE)
-    print("Fetching All Contact History" + Style.RESET_ALL)
+    print("Setting LOG_LEVEL To: {}\n\nFetching All Contact History".format(LOG_LEVEL_MAP[LOG_LEVEL])+ Style.RESET_ALL)
 
     if(args.update_all):
         print(Fore.BLUE)
-        print("Updating Contact Map")
-        print(Style.RESET_ALL)
+        print("Updating Contact Map" + Style.RESET_ALL)
         UpdateContactMap()
 
     UpdateAllContactChatHistory(LOG_LEVEL)
