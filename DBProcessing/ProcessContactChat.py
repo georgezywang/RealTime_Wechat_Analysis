@@ -1,16 +1,22 @@
-import ConnectWXDB
 import datetime
-import DataPlotter
 import os
 import sys
 import time
-from pysqlcipher3 import dbapi2 as sqlite
-import hashlib
 import argparse
 from statistics import mean
 import matplotlib.pyplot as plt
 from colorama import Fore, Style
 import xml.etree.ElementTree as ET
+
+import DataPlotter
+from Utils import *
+from config import *
+
+# Your Config File should declare all necessary global variables including:
+# CONTACT_DB_PATH, 存储联系人的微信.db 文件
+# KEY_PATH， 所获得的密钥文件，txt文件
+# WXDB_DIR，微信数据，msg的路径
+# PARSED_DB_PATH，你的备份数据库的路径
 
 class ChatProcess():
     def __init__(self, m_nsAliasName):
@@ -77,10 +83,10 @@ class ChatProcess():
             print("Time Since My Last Reply: {}".format(timeSinceMyLastReply))
             print(Style.RESET_ALL)
 
-            if len(self.contactReplyInterval) >= 3 and timeSinceContactLastRepy > 3 * mean(self.contactReplyInterval) and self.lastReplyEntity == 0:
+            if len(self.contactReplyInterval) != 0 and timeSinceContactLastRepy > 3 * mean(self.contactReplyInterval) and self.lastReplyEntity == 0:
                 print(Fore.RED)
                 print("WARNING: Contact is taking unusually long time to reply, consider abort chat" + Style.RESET_ALL)
-            elif len(self.myReplyInterval) >= 3 and timeSinceMyLastReply > 3 * mean(self.myReplyInterval) and self.lastReplyEntity == 1:
+            elif len(self.myReplyInterval) != 0 and timeSinceMyLastReply > 3 * mean(self.myReplyInterval) and self.lastReplyEntity == 1:
                 print(Fore.RED)
                 print("WARNING: You should consider replying to the message" + Style.RESET_ALL)
 
@@ -110,28 +116,12 @@ class ChatProcess():
         print("My longest wait is {}s\nMy longest hold is {}s\n".format(myLongestWait, myLongestHold))
         print(Style.RESET_ALL)
 
-#Utils
-def ReadKey(KeyPath):
-    with open(KeyPath, "r") as fp:
-        DBKey  = fp.read()
-        DBKey = DBKey[2:]
-    return DBKey
-
-def ConnectNonEncryptedDB(DBPath):
-    conn = sqlite.connect(DBPath)
-    return conn
-
-def transmd5(stringCode):
-    #encrypt string with md5 encryption
-	m = hashlib.md5(stringCode.encode(encoding='UTF-8')).hexdigest()
-	return(m)
-
 #data retrieval
 def UpdateContactMap():
     #TODO: Reimplement updating procedure to save connection time
     #Update ParsedContact Table in ParsedDB
     DBKey = ReadKey(KEY_PATH)
-    DBCursor = ConnectWXDB.ConnectWXDB(CONTACT_DB_PATH, DBKey)
+    DBCursor = ConnectWXDB(CONTACT_DB_PATH, DBKey)
 
     DBCursor.execute("""SELECT m_nsUsrName, m_nsRemark, m_nsAliasName
                         FROM WCContact
@@ -160,7 +150,7 @@ def UpdateContactMap():
 
             DBName = "msg_{}.db".format(WXDBIndex)
             currentDB = os.path.join(WXDB_DIR, DBName)
-            currentDBCursor = ConnectWXDB.ConnectWXDB(currentDB, DBKey)
+            currentDBCursor = ConnectWXDB(currentDB, DBKey)
             currentDBCursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tableList = [table[0] for table in currentDBCursor.fetchall()]
             currentDBCursor.close()
@@ -169,12 +159,11 @@ def UpdateContactMap():
                 db_Stored = WXDBIndex
                 continue
         
-        if db_Stored == -1:
-            #print("No Previous History")
-            continue
-        else:
-            contactRemark = m_nsRemark if len(m_nsRemark) > 0 else m_nsUsrName
-            print("Contact {} Stored in DB {}".format(contactRemark, db_Stored))
+        # if db_Stored == -1:
+        #     #print("No Previous History")
+        #     continue
+        contactRemark = m_nsRemark if type(m_nsRemark) is not None or len(m_nsRemark.replace(" ", "")) > 1 else m_nsUsrName
+        print("Contact {} Stored in DB {}".format(contactRemark, db_Stored))
         
         parsedDataCursor.execute("""INSERT OR REPLACE INTO ParsedContact(
                                     m_nsUsrName,
@@ -185,34 +174,6 @@ def UpdateContactMap():
                                     VALUES(?,?,?,?,?);""", (m_nsUsrName, m_nsRemark,
                                     m_nsAliasName, chat_md5ID, db_Stored))
     PARSED_DATA_CONNECTION.commit()
-    parsedDataCursor.close()
-
-def FetchContactData(m_nsAliasName, parsedDataCursor):
-    #fetch user data from ParsedContact table
-    parsedDataCursor.execute("""SELECT m_nsRemark,
-                                chat_md5ID,
-                                db_Stored
-                                FROM ParsedContact
-                                WHERE m_nsAliasName = ?""", (m_nsAliasName, ))
-    retreivedInfo = parsedDataCursor.fetchall()
-    return retreivedInfo
-
-def GetUpdateContactInfo(m_nsAliasName):
-    #Get user info from ParsedContact table
-    parsedDataCursor = PARSED_DATA_CONNECTION.cursor()
-    userStorageInfo= FetchContactData(m_nsAliasName, parsedDataCursor)
-
-    if len(userStorageInfo) < 1:
-        UpdateContactMap()
-        retreivedInfo = FetchContactData(m_nsAliasName, parsedDataCursor)
-        if len((retreivedInfo)) < 1:
-            raise Exception("No Chat History for {} Found".format(m_nsAliasName))
-    
-    userStorageInfo = userStorageInfo[0]
-    userAlias = userStorageInfo[0]
-    userChatEncryption = userStorageInfo[1]
-    userDB = userStorageInfo[2]
-    return userAlias, userChatEncryption, userDB
 
 def UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = False):
     #update chat history for specific contact
@@ -228,24 +189,28 @@ def UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = 
                                 messageType INTEGER,
                                 mesDes INTEGER,
                                 msgSource TEXT);""".format(userChatEncryption))
+    PARSED_DATA_CONNECTION.commit()
 
     parsedDataCursor.execute("""SELECT max(mesLocalID)
                                 FROM {}""".format(userChatEncryption))
     mostRecentChatID = parsedDataCursor.fetchall()[0][0]
     mostRecentChatID = 0 if type(mostRecentChatID) != int else mostRecentChatID
 
-    userChatDBCursor.execute("""SELECT mesLocalID, 
-                                msgCreateTime,
-                                msgContent,
-                                msgStatus,
-                                msgImgStatus,
-                                messageType,
-                                mesDes,
-                                msgSource,
-                                msgVoiceText
-                                FROM {}
-                                WHERE mesLocalID > ?""".format(userChatEncryption),\
-                                (mostRecentChatID,))
+    try:
+        userChatDBCursor.execute("""SELECT mesLocalID, 
+                                    msgCreateTime,
+                                    msgContent,
+                                    msgStatus,
+                                    msgImgStatus,
+                                    messageType,
+                                    mesDes,
+                                    msgSource,
+                                    msgVoiceText
+                                    FROM {}
+                                    WHERE mesLocalID > ?""".format(userChatEncryption),\
+                                    (mostRecentChatID,))
+    except:
+        return []
     updateChatHistory = userChatDBCursor.fetchall()
 
     for chat in updateChatHistory:
@@ -264,11 +229,11 @@ def UpdateContactHistory(userChatDBCursor, userChatEncryption, userAlias, log = 
 
 def GetUserDB(m_nsAliasName):
     #get the encrypted db that stores user @m_nsAliasName
-    userAlias, userChatEncryption, userDB = GetUpdateContactInfo(m_nsAliasName) 
+    userAlias, userChatEncryption, userDB = GetUpdateContactInfo(PARSED_DATA_CONNECTION, m_nsAliasName) 
     DBKey = ReadKey(KEY_PATH)
     DBName = "msg_{}.db".format(userDB)
     userChatDB = os.path.join(WXDB_DIR, DBName)
-    userChatDBCursor = ConnectWXDB.ConnectWXDB(userChatDB, DBKey)
+    userChatDBCursor = ConnectWXDB(userChatDB, DBKey)
     return userChatDBCursor, userChatEncryption, userAlias
 
 def UpdateAllContactChatHistory(log = 1):
@@ -336,10 +301,6 @@ def RealTimeLogging(m_nsAliasName):
             sys.exit()
                 
 if __name__ == "__main__":
-    CONTACT_DB_PATH = "/Users/wzy/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/b309b66a15900f3091dd5d8870f9ecfa/Contact/wccontact_new2.db"
-    KEY_PATH = "resources/Key.txt"
-    WXDB_DIR = "/Users/wzy/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/b309b66a15900f3091dd5d8870f9ecfa/Message/"
-    PARSED_DB_PATH = "DataStore/Contact.db"
 
     LOG_LEVEL_MAP = {0 : "NO_CHAT",
                      1 : "REAL_TIME_ONLY",

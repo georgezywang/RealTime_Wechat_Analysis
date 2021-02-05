@@ -2,9 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-/resources
 /DataStore
 chatStats.png
+/IphoneBackup
+/DBProcessing/config.py
+*.txt
 
 # C extensions
 *.so

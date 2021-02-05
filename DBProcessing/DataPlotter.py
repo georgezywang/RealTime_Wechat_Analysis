@@ -79,6 +79,7 @@ def PlotStats(myMsgTimeMonthly, myMsgCountMonthly, myMsgTimeDaily, myMsgCountDai
     nowTimeStamp = datetime.timestamp(datetime.now())
     contactPeriod = 'NA' if len(contactReplyInterval) < 1 else int((nowTimeStamp - datetime.timestamp(startTime))/len(contactReplyInterval))
     replyIntervalPlot.set_title("Smooth Real Time Reply Stats: {}".format(contactPeriod))
+    #TODO: change contact reply period calculation
     # props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
     # textstr = "Sec since contact reply: {} \nSec since u reply: {}".format(int(nowTimeStamp - contactLastReply), int(nowTimeStamp - myLastReply))
     # replyIntervalPlot.text(0.05, 0.95, textstr, transform=replyIntervalPlot.transAxes, fontsize=10,

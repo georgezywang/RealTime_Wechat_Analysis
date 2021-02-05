@@ -22,6 +22,17 @@ You should also be prompted to the `lldb` interface. Issue the command `br set -
 ```
 Save it to the a txt file and run `utils/KeyParser.py` to obtain a key. That key will allow you to open db files stored in WeChat.
 
+## Backup Iphone Chat History
+使用 [iphone Backup Extractor](https://www.iphonebackupextractor.com/free-download/) 可以方便的解码ios版微信的数据库。备份后可以在 `Application/com.tencent.xin/Documents/{你的微信号md5加密}/DB` 找到。聊天记录存储在`message_*.sqlite`中，没有密码。
+
+## 效果(实时)
+![](resources/Sample.png)
+
+![](resources/Sample1.png)
+
+## TODO:
+整合iPhone和Mac聊天记录；更换GUI，使用plotly；增加sentimental analysis等。
+
 ## References
 ```
 https://www.macworld.co.uk/how-to/how-turn-off-mac-os-x-system-integrity-protection-rootless-3638975/
